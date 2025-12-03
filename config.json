@@ -1,0 +1,7 @@
+{
+  "server_url": "wss://smartchairserver-production.up.railway.app",
+  "camera_id": "cam_01",
+  "user_id": "user_01",
+  "send_interval_sec": 1,
+  "log_level": "INFO"
+}
