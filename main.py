@@ -25,7 +25,8 @@ def main():
 
     logger = setup_logger(config.get("log_level", "INFO"))
 
-    server_url = config["server_url"]
+    primary = config["primary_server"]
+    backup = config["backup_server"]
     camera_id = config["camera_id"]
     user_id = config["user_id"]
     send_interval = config.get("send_interval_sec", 1)
@@ -34,7 +35,7 @@ def main():
     # ===============================
     # Initialize components
     # ===============================
-    ws = WSClient(server_url, logger)
+    ws = WSClient(primary, backup, logger)
 
     work_timer = WorkTimer(
         attention_threshold=attention_threshold
