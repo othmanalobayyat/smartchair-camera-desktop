@@ -1,12 +1,28 @@
-# Python virtual environment
+# Python venv
 .venv/
+env/
+venv/
 
 # Python cache
 __pycache__/
 *.pyc
+*.pyo
 
-# OS files
+# System files
 .DS_Store
+Thumbs.db
 
-# Env variables
+# VS Code
+.vscode/
+
+# Environment variables
 .env
+*.env
+
+# Logs
+*.log
+
+# Numpy binary dumps (غير ضرورية)
+*.npy
+*.npz
+*.ndarray
