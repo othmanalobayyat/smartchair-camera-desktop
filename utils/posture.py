@@ -53,31 +53,28 @@ class PostureEstimator:
 
         # ترتيب المفاصل المطابق تمامًا لترتيب الأعمدة في التدريب
         self.joints_order = [
-            mp_pose.PoseLandmark.NOSE,             # nose_x, nose_y, nose_z
-            mp_pose.PoseLandmark.LEFT_EYE_INNER,   # left_eye_inner_*
-            mp_pose.PoseLandmark.LEFT_EYE,         # left_eye_*
-            mp_pose.PoseLandmark.LEFT_EYE_OUTER,   # left_eye_outer_*
-            mp_pose.PoseLandmark.RIGHT_EYE_INNER,  # right_eye_inner_*
-            mp_pose.PoseLandmark.RIGHT_EYE,        # right_eye_*
-            mp_pose.PoseLandmark.RIGHT_EYE_OUTER,  # right_eye_outer_*
-            mp_pose.PoseLandmark.LEFT_EAR,         # left_ear_*
-            mp_pose.PoseLandmark.RIGHT_EAR,        # right_ear_*
-            mp_pose.PoseLandmark.MOUTH_LEFT,       # mouth_left_*
-            mp_pose.PoseLandmark.MOUTH_RIGHT,      # mouth_right_*
-            mp_pose.PoseLandmark.LEFT_SHOULDER,    # left_shoulder_*
-            mp_pose.PoseLandmark.RIGHT_SHOULDER,   # right_shoulder_*
+            mp_pose.PoseLandmark.NOSE,
+            mp_pose.PoseLandmark.LEFT_EYE_INNER,
+            mp_pose.PoseLandmark.LEFT_EYE,
+            mp_pose.PoseLandmark.LEFT_EYE_OUTER,
+            mp_pose.PoseLandmark.RIGHT_EYE_INNER,
+            mp_pose.PoseLandmark.RIGHT_EYE,
+            mp_pose.PoseLandmark.RIGHT_EYE_OUTER,
+            mp_pose.PoseLandmark.LEFT_EAR,
+            mp_pose.PoseLandmark.RIGHT_EAR,
+            mp_pose.PoseLandmark.MOUTH_LEFT,
+            mp_pose.PoseLandmark.MOUTH_RIGHT,
+            mp_pose.PoseLandmark.LEFT_SHOULDER,
+            mp_pose.PoseLandmark.RIGHT_SHOULDER,
         ]
 
-        # مفاصل الحوض لحساب hip center (مثل وصف الداتا)
+        # مفاصل الحوض لحساب hip center
         self.left_hip_idx = mp_pose.PoseLandmark.LEFT_HIP
         self.right_hip_idx = mp_pose.PoseLandmark.RIGHT_HIP
 
     def _extract_features(self, pose_landmarks) -> np.ndarray:
         """
-        يحول 13 landmark علوي فقط إلى 39 feature بالترتيب:
-        ['nose_x', 'nose_y', 'nose_z',
-         'left_eye_inner_x', ..., 'right_shoulder_z']
-        لكن بعد طرح hip center من كل إحداثية (نفس تطبيع الداتا).
+        استخراج الـ 39 feature من 13 مفصل علوي مع طرح hip center.
         """
 
         # 1) حساب hip center
@@ -88,46 +85,55 @@ class PostureEstimator:
         hip_y = (left_hip.y + right_hip.y) / 2.0
         hip_z = (left_hip.z + right_hip.z) / 2.0
 
-        # 2) تجميع الميزات نسبةً إلى hip center
+        # 2) تجميع الميزات
         feats = []
         for lm_enum in self.joints_order:
             lm = pose_landmarks.landmark[lm_enum.value]
 
-            # طرح hip center (نفس فكرة "normalized relative to hip center")
             x_rel = lm.x - hip_x
             y_rel = lm.y - hip_y
             z_rel = lm.z - hip_z
 
             feats.extend([x_rel, y_rel, z_rel])
 
-        feats = np.array(feats, dtype=np.float32).reshape(1, -1)  # (1, 39)
-        return feats
+        return np.array(feats, dtype=np.float32).reshape(1, -1)  # (1, 39)
 
     def process_frame(self, frame):
         """
-        يأخذ frame من الكاميرا ويعيد:
-          (posture_label: str, posture_ok: bool)
-
-        لو لم يُكتشف شخص → ("NO_PERSON", False)
+        يعيد (posture_label, posture_ok)
         """
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.pose.process(rgb)
 
-        # لا يوجد شخص / لا يوجد pose
         if not results.pose_landmarks:
             return "NO_PERSON", False
 
-        # استخراج الـ 39 feature كما في التدريب
+        # 1) استخراج الميزات
         X = self._extract_features(results.pose_landmarks)
-
-        # تطبيق نفس الـ scaler المستخدم أثناء التدريب
         X_scaled = self.scaler.transform(X)
 
-        # توقع الفئة (XGBoost)
+        # 2) توقع الموديل
         y_prob = self.model.predict_proba(X_scaled)[0]
         class_idx = int(np.argmax(y_prob))
+        raw_label = self.label_enc.classes_[class_idx]
 
-        label = self.label_enc.classes_[class_idx]
-        posture_ok = (label == self.good_label)
+        # 3) حساب حدود manual adjustment
+        lm = results.pose_landmarks.landmark
 
-        return label, bool(posture_ok)
+        nose_z = lm[self.joints_order[0].value].z
+        left_sh = lm[self.joints_order[-2].value]
+        right_sh = lm[self.joints_order[-1].value]
+
+        shoulder_diff = abs(left_sh.y - right_sh.y)
+
+        # قواعد التصحيح
+        if shoulder_diff < 0.02:
+            final_label = "TUP"
+        elif nose_z > -0.15:
+            final_label = "TUP"
+        else:
+            final_label = raw_label
+
+        posture_ok = (final_label == self.good_label)
+
+        return final_label, posture_ok
