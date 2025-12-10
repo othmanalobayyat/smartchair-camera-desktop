@@ -1,9 +1,30 @@
+import os
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # يخفي تحذيرات TensorFlow Lite
+
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=ImportWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
+# اخفاء protobuf spam
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+
+import logging
+logging.getLogger('mediapipe').setLevel(logging.ERROR)
+
+
+
 # main.py
 import json
 import time
 from datetime import datetime
 
 import cv2
+
+import logging
+logging.getLogger('mediapipe').setLevel(logging.ERROR)
+
 
 from utils.logger import setup_logger
 from utils.ws_client import WSClient
@@ -114,7 +135,8 @@ def main():
                 )
 
                 total_work_sec = work_timer.get_total_work_seconds()
-                working_flag = work_timer.currently_working
+                working_flag = (work_timer.state == "WORK")
+
 
                 # ===============================
                 # Send data to server
