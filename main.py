@@ -160,9 +160,10 @@ def main():
                 last_send_time = now
 
                 payload = {
-                    "device_id": camera_id,
-                    "user_id": user_id,
-                    "is_present": is_present,
+                    "type": "camera_frame",
+                    "device_id": self.device_id,
+                    "user_id": self.user_id,
+                    "is_present": detected,
                     "attention_level": round(attention_level, 1),
                     "drowsiness": is_drowsy,
                     "working": working_flag,

@@ -2,7 +2,8 @@
   "primary_server": "ws://10.10.10.19:3000",
   "backup_server": "wss://smartchairserver-production.up.railway.app",
   "camera_id": "cam_01",
-  "user_id": "user_01",
+  "user_id": "69352e9ae32f26bb86e525c5",
   "send_interval_sec": 1,
-  "log_level": "INFO"
+  "log_level": "INFO",
+  "dark_mode": false
 }
