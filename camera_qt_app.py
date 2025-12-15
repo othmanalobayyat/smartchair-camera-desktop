@@ -267,6 +267,11 @@ class CameraWindow(QMainWindow):
 
         frame_flipped = cv2.flip(frame, 1)
 
+        # 🔒 Privacy control from mobile (camera toggle)
+        if not self.ws.camera_enabled:
+            self.display_frame(frame_flipped)
+            return
+
         now = time.time()
         self.frame_count += 1
         if now - self.fps_last_time >= 1:

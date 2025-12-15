@@ -16,6 +16,7 @@ class WSClient:
     - إرسال البيانات من خلال Queue غير حاجبة للـ main thread
     - دعم primary / backup server
     - keep-alive + إعادة اتصال تلقائية
+    - استقبال أوامر camera_control من الموبايل (start / stop)
     """
 
     def __init__(self, primary_url, backup_url, logger):
@@ -24,6 +25,11 @@ class WSClient:
         self.active_url = primary_url
 
         self.logger = logger
+
+        # =========================
+        # Camera control from mobile
+        # =========================
+        self.camera_enabled = True
 
         self.ws = None
         self.connected = False
@@ -35,6 +41,10 @@ class WSClient:
 
         # Thread التحكم في الاتصال والإرسال
         self._worker_thread = None
+
+        # Thread استقبال الرسائل
+        self._receiver_thread = None
+
         self._stop_event = threading.Event()
 
         # keep-alive
@@ -70,7 +80,6 @@ class WSClient:
             # 1) إذا لسنا متصلين → حاول الاتصال
             if not self.connected:
                 if not self._connect_sequence():
-                    # فشل الاتصال بكل السيرفرات → انتظر ثم حاول ثانية
                     time.sleep(reconnect_delay)
                     reconnect_delay = min(
                         self._max_reconnect_delay,
@@ -78,25 +87,20 @@ class WSClient:
                     )
                     continue
                 else:
-                    # نجاح الاتصال → إعادة تعيين التأخير
                     reconnect_delay = self._base_reconnect_delay
 
-            # 2) متصلين → حاول إرسال رسالة من الـ Queue أو عمل keep-alive
+            # 2) متصلين → إرسال / keep-alive
             try:
-                # نستخدم timeout صغير حتى نتمكن من تنفيذ keep-alive
                 try:
                     msg = self._queue.get(timeout=0.1)
                 except queue.Empty:
                     msg = None
 
-                # keep-alive
                 self._keep_alive()
 
-                # لا توجد رسالة لإرسالها حاليا
                 if msg is None:
                     continue
 
-                # إذا وصلنا هنا، هناك رسالة جاهزة للإرسال
                 self.ws.send(msg)
 
             except (
@@ -114,6 +118,53 @@ class WSClient:
                 self.connected = False
 
     # ============================
+    # Receiver loop (NEW)
+    # ============================
+    def _start_receiver(self):
+        if self._receiver_thread is not None and self._receiver_thread.is_alive():
+            return
+
+        self._receiver_thread = threading.Thread(
+            target=self._receive_loop,
+            daemon=True,
+            name="WSClientReceiver",
+        )
+        self._receiver_thread.start()
+
+    def _receive_loop(self):
+        while not self._stop_event.is_set():
+            if not self.connected or self.ws is None:
+                time.sleep(0.2)
+                continue
+
+            try:
+                msg = self.ws.recv()
+                if not msg:
+                    continue
+
+                data = json.loads(msg)
+
+                # ==========================
+                # CAMERA CONTROL FROM MOBILE
+                # ==========================
+                if data.get("type") == "camera_control":
+                    action = data.get("action")
+
+                    if action == "stop":
+                        self.camera_enabled = False
+                        self.logger.info("⏹ Camera disabled from mobile")
+
+                    elif action == "start":
+                        self.camera_enabled = True
+                        self.logger.info("▶️ Camera enabled from mobile")
+
+            except WebSocketConnectionClosedException:
+                self.connected = False
+
+            except Exception as e:
+                self.logger.warning(f"WS recv error: {e}")
+
+    # ============================
     # Connection helpers
     # ============================
     def _try_connect(self, url: str) -> bool:
@@ -125,7 +176,6 @@ class WSClient:
                 enable_multithread=True,
             )
             with self._lock:
-                # في حال أُغلِق الاتصال السابق داخل worker
                 if self.ws is not None:
                     try:
                         self.ws.close()
@@ -138,6 +188,10 @@ class WSClient:
                 self.last_ping_time = time.time()
 
             self.logger.info(f"✅ Connected to {url}")
+
+            # تشغيل receiver بعد الاتصال
+            self._start_receiver()
+
             return True
 
         except Exception as e:
@@ -145,15 +199,9 @@ class WSClient:
             return False
 
     def _connect_sequence(self) -> bool:
-        """
-        يحاول الاتصال أولاً بالـ primary
-        ثم بالـ backup إذا فشل.
-        """
-        # primary
         if self._try_connect(self.primary_url):
             return True
 
-        # backup
         self.logger.warning("⬇️ Switching to BACKUP server")
         if self._try_connect(self.backup_url):
             return True
@@ -161,10 +209,6 @@ class WSClient:
         return False
 
     def _keep_alive(self):
-        """
-        إرسال ping كل ping_interval ثانية تقريباً،
-        حتى لا يغلق السيرفر الاتصال لعدم النشاط.
-        """
         if not self.connected or self.ws is None:
             return
 
@@ -191,41 +235,25 @@ class WSClient:
     # Public API
     # ============================
     def connect(self):
-        """
-        للإبقاء على التوافق مع الكود القديم.
-        الآن الـ worker هو الذي يتحكم في الاتصال،
-        وهذه الدالة فقط تتأكد أن الـ worker يعمل.
-        """
         self._start_worker()
 
     def send_json(self, data: dict):
-        """
-        لا ترسل مباشرة عبر الـ socket،
-        فقط تضيف الرسالة إلى الـ Queue وترجع فوراً
-        حتى لا تحجب الخيط الرئيسي.
-        """
         try:
             msg = json.dumps(data)
         except Exception as e:
             self.logger.error(f"JSON encode error: {e}")
             return
 
-        # تأكد أن الـ worker يعمل
         self._start_worker()
 
         try:
             self._queue.put_nowait(msg)
         except queue.Full:
-            # Queue غير محدودة افتراضياً، لكن نضع هذا للحماية
             self.logger.warning("WS send queue is full, dropping message")
 
     def close(self):
-        """
-        إيقاف الـ worker وإغلاق الـ WebSocket.
-        """
         self._stop_event.set()
 
-        # إضافة رسالة فارغة لإخراج الـ worker من الـ get(timeout)
         try:
             self._queue.put_nowait(None)
         except Exception:
