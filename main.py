@@ -1,3 +1,9 @@
+"""
+DEPRECATED FILE
+This CLI version was used during early development.
+The production version is camera_qt_app.py
+"""
+
 import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # يخفي تحذيرات TensorFlow Lite
 
@@ -161,9 +167,9 @@ def main():
 
                 payload = {
                     "type": "camera_frame",
-                    "device_id": self.device_id,
-                    "user_id": self.user_id,
-                    "is_present": detected,
+                    "device_id": camera_id,
+                    "user_id": user_id,
+                    "is_present": is_present,
                     "attention_level": round(attention_level, 1),
                     "drowsiness": is_drowsy,
                     "working": working_flag,

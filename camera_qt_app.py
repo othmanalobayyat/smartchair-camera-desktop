@@ -76,7 +76,9 @@ class CameraWindow(QMainWindow):
 
         self.ws = WSClient(self.primary, self.backup, self.logger)
         self.work_timer = WorkTimer(attention_threshold=self.attention_threshold)
-        self.drowsiness_detector = DrowsinessDetector()
+        self.drowsiness_detector = DrowsinessDetector(
+            eye_closed_threshold_sec=config.get("eye_closed_threshold_sec", 2.0)
+        )
         self.attention_estimator = AttentionEstimator()
         self.detector = FaceDetector()
         self.posture_estimator = PostureEstimator()
@@ -93,7 +95,7 @@ class CameraWindow(QMainWindow):
         self.fps = 0
 
         self.last_process_time = 0.0
-        self.process_interval = 0.12
+        self.process_interval = config.get("process_interval_sec", 0.12)
 
         self.init_ui()
         self.apply_theme()
@@ -267,7 +269,6 @@ class CameraWindow(QMainWindow):
 
         frame_flipped = cv2.flip(frame, 1)
 
-        # 🔒 Privacy control from mobile (camera toggle)
         if not self.ws.camera_enabled:
             self.display_frame(frame_flipped)
             return
@@ -280,34 +281,22 @@ class CameraWindow(QMainWindow):
             self.fps_last_time = now
             self.lbl_fps.setText(f"FPS: {self.fps}")
 
-        # =========================
-        # PAIRING MODE (QR)
-        # =========================
         if self.pairing_mode:
             decoded = pyzbar.decode(frame)
-            if decoded:
-                self.logger.info(f"📷 QR detected ({len(decoded)})")
-
             for obj in decoded:
                 try:
-                    raw = obj.data.decode("utf-8").strip()
-                    self.logger.info(f"📦 QR raw: {raw}")
-
-                    data = json.loads(raw)
+                    data = json.loads(obj.data.decode("utf-8").strip())
                     if data.get("scheme") == "smartchair" and data.get("user_id"):
                         self.user_id = data["user_id"]
                         self.config["user_id"] = self.user_id
                         save_config(self.config)
-
                         self.paired = True
                         self.pairing_mode = False
                         self.qr_overlay.hide()
                         self.update_ui_state()
-
-                        self.logger.info("✅ Camera paired successfully")
                         return
-                except Exception as e:
-                    self.logger.warning(f"QR parse error: {e}")
+                except Exception:
+                    pass
 
             self.display_frame(frame_flipped)
             return
@@ -323,15 +312,26 @@ class CameraWindow(QMainWindow):
 
         try:
             posture_label, posture_ok = self.posture_estimator.process_frame(frame_flipped)
-            detected, eyes, gaze, head = self.detector.process_frame(frame_flipped)
-            attention = self.attention_estimator.estimate(detected, gaze, head, eyes)
 
-            self.drowsiness_detector.update(eyes)
+            face_detected, eyes_open_prob, gaze_centered, head_stable = (
+                self.detector.process_frame(frame_flipped)
+            )
+
+            attention = self.attention_estimator.estimate(
+                face_detected,
+                gaze_centered,
+                head_stable,
+                eyes_open_prob,
+            )
+
+            self.drowsiness_detector.update(eyes_open_prob)
             drowsy = self.drowsiness_detector.is_drowsy
 
-            self.work_timer.update(detected, attention)
+            self.work_timer.update(face_detected, attention)
 
-            self.lbl_presence.setText(f"Presence: {'Present' if detected else 'Away'}")
+            self.lbl_presence.setText(
+                f"Presence: {'Present' if face_detected else 'Away'}"
+            )
             self.lbl_attention.setText(f"Attention: {int(attention)}%")
             self.lbl_posture.setText(f"Posture: {posture_label}")
             self.lbl_drowsy.setText(f"Drowsy: {'Yes' if drowsy else 'No'}")
@@ -345,11 +345,12 @@ class CameraWindow(QMainWindow):
 
             if time.time() - self.last_send_time >= self.send_interval:
                 self.last_send_time = time.time()
-                self.ws.send_json({
+
+                payload = {
                     "type": "camera_frame",
                     "device_id": self.device_id,
                     "user_id": self.user_id,
-                    "is_present": detected,
+                    "is_present": face_detected,
                     "attention_level": round(attention, 1),
                     "drowsiness": drowsy,
                     "working": self.work_timer.state == "WORK",
@@ -357,13 +358,24 @@ class CameraWindow(QMainWindow):
                     "posture_label": posture_label,
                     "posture_correct": posture_ok,
                     "timestamp": datetime.utcnow().isoformat() + "Z",
-                })
+                }
 
-        except Exception as e:
-            self.logger.error(e)
+                self.send_camera_frame(payload)
+
+        except Exception:
+            self.logger.exception("Error during frame processing")
 
         self.display_frame(frame_flipped)
 
+    # ============================================================
+    # NETWORK HELPER
+    # ============================================================
+    def send_camera_frame(self, payload: dict):
+        self.ws.send_json(payload)
+
+    # ============================================================
+    # DISPLAY
+    # ============================================================
     def display_frame(self, frame):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w, c = rgb.shape

@@ -37,7 +37,7 @@ class WSClient:
         self._lock = threading.Lock()
 
         # Queue للرسائل (Strings جاهزة للإرسال)
-        self._queue: "queue.Queue[str]" = queue.Queue()
+        self._queue: "queue.Queue[str]" = queue.Queue(maxsize=10)
 
         # Thread التحكم في الاتصال والإرسال
         self._worker_thread = None
@@ -113,7 +113,7 @@ class WSClient:
                 self.connected = False
 
             except Exception as e:
-                self.logger.error(f"WS worker error: {e}")
+                self.logger.exception("WS worker error")
                 self._safe_close()
                 self.connected = False
 
@@ -247,7 +247,8 @@ class WSClient:
         self._start_worker()
 
         try:
-            self._queue.put_nowait(msg)
+            if not self._queue.full():
+                self._queue.put_nowait(msg)
         except queue.Full:
             self.logger.warning("WS send queue is full, dropping message")
 

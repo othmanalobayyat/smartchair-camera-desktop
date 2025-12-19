@@ -5,5 +5,8 @@
   "user_id": "69352e9ae32f26bb86e525c5",
   "send_interval_sec": 1,
   "log_level": "INFO",
-  "dark_mode": false
+  "dark_mode": false,
+  "attention_threshold": 50,
+  "process_interval_sec": 0.12,
+  "eye_closed_threshold_sec": 2.0
 }

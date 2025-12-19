@@ -1,4 +1,14 @@
 # utils/posture.py
+"""
+Posture Estimation Module
+
+This module extracts 39 upper-body skeletal features using MediaPipe Pose,
+normalizes them relative to the hip center, and performs posture classification
+using a pre-trained XGBoost model.
+
+The model was trained offline and is used here only for inference.
+"""
+
 import os
 import cv2
 import numpy as np
