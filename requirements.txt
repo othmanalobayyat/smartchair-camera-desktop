@@ -1,9 +1,19 @@
-opencv-python
-mediapipe
-numpy
-websocket-client
+# Computer Vision
+mediapipe==0.10.9
+opencv-contrib-python==4.12.0.88
+
+# Core scientific stack
+numpy<2.0
 scikit-learn
 joblib
 xgboost
+
+# UI
 PyQt5
 
+# Networking
+websocket-client
+
+# Utilities
+protobuf<4
+sounddevice
