@@ -1,5 +1,5 @@
 {
-  "primary_server": "ws://192.168.1.29:3000",
+  "primary_server": "wss://smartchair.posturic.online",
   "backup_server": "wss://smartchairserver-production.up.railway.app",
   "camera_id": "cam_01",
   "user_id": "69352e9ae32f26bb86e525c5",

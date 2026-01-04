@@ -4,79 +4,76 @@ import time
 
 class WorkTimer:
     """
-    WorkTimer v2 — نظام جلسات عمل احترافي
-    يتتبع:
-        - بداية الجلسة
-        - نهاية الجلسة
-        - المدة الحالية
-        - مجموع وقت العمل
-        - مجموع وقت الاستراحات
-        - حالة النظام: WORK / BREAK / IDLE
+    WorkTimer v3 — نظام جلسات عمل صحيح هندسيًا
+    ✔️ يعد فقط وقت العمل الفعلي
+    ✔️ يتوقف عند الغياب أو الشرود
+    ✔️ يكمل بعد العودة
+    ✔️ لا يعد وقت الاستراحة
     """
 
     def __init__(self, attention_threshold: int):
         self.attention_threshold = attention_threshold
 
-        # الزمن
+        # ==========================
+        # TOTAL TIME
+        # ==========================
         self.total_work_seconds = 0.0
         self.total_break_seconds = 0.0
 
-        # الجلسة الحالية
-        self.session_start = None
-        self.session_active = False
-
-        # تتبع الوقت بين التحديثات
+        # ==========================
+        # INTERNAL TIMING
+        # ==========================
         self._last_update_time = time.time()
 
-        # حالة النظام
+        # ==========================
+        # STATE
+        # ==========================
         self.state = "IDLE"  # WORK / BREAK / IDLE
 
+    # ============================================================
+    # UPDATE LOOP
+    # ============================================================
     def update(self, is_present: bool, attention_level: float):
         now = time.time()
         delta = now - self._last_update_time
         self._last_update_time = now
 
         # ==========================
-        # 1) لا يوجد مستخدم → BREAK
+        # 1) غير موجود → BREAK
         # ==========================
         if not is_present:
             self.state = "BREAK"
-            self.session_active = False
-            self.session_start = None
             self.total_break_seconds += delta
             return
 
         # ==========================
-        # 2) المستخدم موجود لكن غير مركز
+        # 2) موجود لكن غير مركز → BREAK
         # ==========================
         if attention_level < self.attention_threshold:
             self.state = "BREAK"
-            self.session_active = False
-            self.session_start = None
             self.total_break_seconds += delta
             return
 
         # ==========================
-        # 3) المستخدم مركز → WORK
+        # 3) مركز → WORK
         # ==========================
         self.state = "WORK"
-
-        # بداية جلسة جديدة
-        if not self.session_active:
-            self.session_start = now
-            self.session_active = True
-
-        # تراكم وقت العمل
         self.total_work_seconds += delta
 
+    # ============================================================
+    # GETTERS
+    # ============================================================
     def get_current_session_duration(self) -> int:
-        if not self.session_active or self.session_start is None:
-            return 0
-
-        return int(time.time() - self.session_start)
+        """
+        مدة الجلسة = وقت العمل الفعلي فقط
+        """
+        return int(self.total_work_seconds)
 
     def get_total_work_seconds(self) -> int:
         return int(self.total_work_seconds)
 
     def get_total_break_seconds(self) -> int:
         return int(self.total_break_seconds)
+
+    def get_state(self) -> str:
+        return self.state

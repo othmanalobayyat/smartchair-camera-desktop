@@ -328,6 +328,29 @@ class CameraWindow(QMainWindow):
         drowsy = self.drowsiness_detector.is_drowsy
 
         self.work_timer.update(face_detected, attention)
+        if self.ws.connected and (now - self.last_send_time >= self.send_interval):
+            self.ws.send_json({
+                "device_id": self.device_id,
+               "attention_level": attention,
+               "is_present": face_detected,
+                "drowsy": drowsy,
+                "working_duration_seconds": self.work_timer.get_current_session_duration(),
+            })
+            self.last_send_time = now
+
+        # ==========================
+        # 📡 SEND DATA TO SERVER
+        # ==========================
+        if self.ws.connected and (now - self.last_send_time >= self.send_interval):
+            self.ws.send({
+                "device_id": self.device_id,          # cam_01
+                "attention_level": attention,
+                "is_present": face_detected,
+                "drowsy": drowsy,
+                "working_duration_seconds": self.work_timer.get_current_session_duration(),
+         })
+            self.last_send_time = now
+
 
         self.lbl_presence.setText(f"Presence: {'Present' if face_detected else 'Away'}")
 
